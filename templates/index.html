@@ -18,17 +18,45 @@
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
-            <h1>🎯 Vinted Deal Finder Pro</h1>
-            <p>Advanced negotiation strategies & market analysis</p>
+            <div class="header-content">
+                <h1>🎯 Vinted Deal Finder Pro</h1>
+                <p>Advanced negotiation strategies & market analysis</p>
+                <button id="darkModeToggle" class="dark-mode-toggle" aria-label="Toggle dark mode">
+                    <span class="toggle-icon">🌙</span>
+                </button>
+            </div>
         </header>
 
         <!-- Main Form -->
         <main class="main-content">
+            <!-- Recent Items Section -->
+            <div id="recentItems" class="recent-items" style="display: none;">
+                <h3>Recent Analyses</h3>
+                <div id="recentItemsList" class="recent-items-list">
+                    <!-- Recent items will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Quick Input Tools -->
+            <div class="quick-tools">
+                <button id="smartFillBtn" class="quick-tool-btn">
+                    📱 Smart Fill from Text
+                </button>
+                <div id="smartFillArea" class="smart-fill-area" style="display: none;">
+                    <textarea id="textInput" placeholder="Paste Vinted item description here..." rows="4"></textarea>
+                    <button id="extractBtn" class="extract-btn">🔍 Extract Info</button>
+                </div>
+            </div>
+
             <form id="analyzeForm" class="input-form">
                 <div class="form-group">
                     <label for="itemName">Item Name</label>
-                    <input type="text" id="itemName" name="itemName" 
-                           placeholder="e.g., Nike Air Force 1 size 9" required>
+                    <div class="input-container">
+                        <input type="text" id="itemName" name="itemName" 
+                               placeholder="e.g., Nike Air Force 1 size 9" required 
+                               autocomplete="off">
+                        <div id="itemSuggestions" class="suggestions-dropdown"></div>
+                    </div>
                     <small>Be specific - include brand, model, size, condition</small>
                 </div>
 
@@ -42,11 +70,21 @@
                     <div class="form-group">
                         <label for="days">Days Listed</label>
                         <input type="number" id="days" name="days" min="0" placeholder="5" required>
+                        <div class="quick-selectors">
+                            <button type="button" class="quick-selector" data-value="0">Today</button>
+                            <button type="button" class="quick-selector" data-value="7">1 Week</button>
+                            <button type="button" class="quick-selector" data-value="30">1 Month</button>
+                        </div>
                     </div>
 
                     <div class="form-group">
                         <label for="interested">Interested People</label>
                         <input type="number" id="interested" name="interested" min="0" placeholder="2" required>
+                        <div class="quick-selectors">
+                            <button type="button" class="quick-selector" data-value="0">None</button>
+                            <button type="button" class="quick-selector" data-value="5">Few</button>
+                            <button type="button" class="quick-selector" data-value="15">Many</button>
+                        </div>
                     </div>
                 </div>
 
@@ -55,6 +93,17 @@
                     <input type="number" id="views" name="views" min="0" 
                            placeholder="Leave blank if unknown">
                     <small>Helps improve accuracy if you know this</small>
+                </div>
+
+                <!-- Condition Quick Toggles -->
+                <div class="form-group">
+                    <label>Condition (optional - auto-detects from item name)</label>
+                    <div class="condition-toggles">
+                        <button type="button" class="condition-toggle" data-condition="new">New</button>
+                        <button type="button" class="condition-toggle" data-condition="excellent">Excellent</button>
+                        <button type="button" class="condition-toggle" data-condition="good">Good</button>
+                        <button type="button" class="condition-toggle" data-condition="used">Used</button>
+                    </div>
                 </div>
 
                 <button type="submit" class="analyze-btn" id="analyzeBtn">
@@ -151,6 +200,7 @@
                         <div class="message-actions">
                             <button id="copyBtn" class="copy-btn">📋 Copy Message</button>
                             <button id="editBtn" class="edit-btn">✏️ Edit</button>
+                            <button id="retryBtn" class="retry-btn">🔄 Retry Analysis</button>
                         </div>
                         <textarea id="editableMessage" class="editable-message" style="display: none;"></textarea>
                     </div>
@@ -175,8 +225,19 @@
                 <div class="loading-content">
                     <div class="loading-spinner"></div>
                     <p>Analyzing market data...</p>
-                    <small>This may take a few seconds</small>
+                    <div class="loading-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill"></div>
+                        </div>
+                        <small id="loadingStatus">Fetching eBay data...</small>
+                    </div>
                 </div>
+            </div>
+
+            <!-- Success Toast -->
+            <div id="successToast" class="success-toast" style="display: none;">
+                <span class="toast-icon">✅</span>
+                <span class="toast-message">Message copied to clipboard!</span>
             </div>
         </main>
 

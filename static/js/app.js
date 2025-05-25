@@ -9,6 +9,8 @@ class VintedProApp {
         this.btnSpinner = document.querySelector('.btn-spinner');
         
         this.currentAnalysis = null;
+        this.recentItems = this.loadRecentItems();
+        
         this.init();
     }
 
@@ -16,10 +18,33 @@ class VintedProApp {
         this.form.addEventListener('submit', (e) => this.handleSubmit(e));
         document.getElementById('copyBtn').addEventListener('click', () => this.copyMessage());
         document.getElementById('editBtn').addEventListener('click', () => this.toggleEdit());
+        document.getElementById('retryBtn').addEventListener('click', () => this.retryAnalysis());
+        
+        // Dark mode toggle
+        document.getElementById('darkModeToggle').addEventListener('click', () => this.toggleDarkMode());
+        
+        // Smart fill functionality
+        document.getElementById('smartFillBtn').addEventListener('click', () => this.toggleSmartFill());
+        document.getElementById('extractBtn').addEventListener('click', () => this.extractFromText());
+        
+        // Quick selectors
+        this.setupQuickSelectors();
+        
+        // Condition toggles
+        this.setupConditionToggles();
+        
+        // Brand autocomplete
+        this.setupBrandAutocomplete();
+        
+        // Load saved theme
+        this.loadTheme();
         
         // Auto-save form data
         this.loadFormData();
         this.form.addEventListener('input', () => this.saveFormData());
+        
+        // Display recent items
+        this.displayRecentItems();
         
         // Register service worker
         if ('serviceWorker' in navigator) {
@@ -28,6 +53,201 @@ class VintedProApp {
         
         // Show install prompt for iPhone users
         this.showInstallPrompt();
+        
+        // Setup haptic feedback
+        this.setupHapticFeedback();
+    }
+
+    setupQuickSelectors() {
+        const quickSelectors = document.querySelectorAll('.quick-selector');
+        quickSelectors.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const value = btn.dataset.value;
+                const input = btn.closest('.form-group').querySelector('input');
+                input.value = value;
+                
+                // Update visual state
+                btn.parentElement.querySelectorAll('.quick-selector').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                this.triggerHaptic();
+            });
+        });
+    }
+
+    setupConditionToggles() {
+        const conditionToggles = document.querySelectorAll('.condition-toggle');
+        conditionToggles.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const condition = btn.dataset.condition;
+                const itemNameInput = document.getElementById('itemName');
+                
+                // Toggle active state
+                conditionToggles.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Add condition to item name if not already there
+                let itemName = itemNameInput.value.trim();
+                const conditionWords = ['new', 'excellent', 'good', 'used', 'worn'];
+                
+                // Remove existing condition words
+                conditionWords.forEach(word => {
+                    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+                    itemName = itemName.replace(regex, '').trim();
+                });
+                
+                // Add new condition
+                itemNameInput.value = `${itemName} ${condition}`.trim();
+                
+                this.triggerHaptic();
+            });
+        });
+    }
+
+    setupBrandAutocomplete() {
+        const itemNameInput = document.getElementById('itemName');
+        const suggestionsDiv = document.getElementById('itemSuggestions');
+        let debounceTimer;
+
+        itemNameInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim();
+            
+            if (query.length < 2) {
+                suggestionsDiv.style.display = 'none';
+                return;
+            }
+
+            debounceTimer = setTimeout(async () => {
+                try {
+                    const response = await fetch(`/api/brands?q=${encodeURIComponent(query)}`);
+                    const suggestions = await response.json();
+                    
+                    if (suggestions.length > 0) {
+                        this.displaySuggestions(suggestions, suggestionsDiv, itemNameInput);
+                    } else {
+                        suggestionsDiv.style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('Error fetching suggestions:', error);
+                }
+            }, 300);
+        });
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!itemNameInput.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.style.display = 'none';
+            }
+        });
+    }
+
+    displaySuggestions(suggestions, container, input) {
+        container.innerHTML = '';
+        suggestions.forEach(suggestion => {
+            const item = document.createElement('div');
+            item.className = 'suggestion-item';
+            item.textContent = suggestion;
+            item.addEventListener('click', () => {
+                const currentValue = input.value.trim();
+                const words = currentValue.split(' ');
+                
+                // Replace the first word with the selected brand
+                words[0] = suggestion;
+                input.value = words.join(' ');
+                container.style.display = 'none';
+                
+                this.triggerHaptic();
+            });
+            container.appendChild(item);
+        });
+        container.style.display = 'block';
+    }
+
+    toggleDarkMode() {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        
+        this.triggerHaptic();
+    }
+
+    loadTheme() {
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+
+    toggleSmartFill() {
+        const smartFillArea = document.getElementById('smartFillArea');
+        const isVisible = smartFillArea.style.display !== 'none';
+        
+        smartFillArea.style.display = isVisible ? 'none' : 'block';
+        
+        if (!isVisible) {
+            document.getElementById('textInput').focus();
+        }
+        
+        this.triggerHaptic();
+    }
+
+    async extractFromText() {
+        const textInput = document.getElementById('textInput');
+        const text = textInput.value.trim();
+        
+        if (!text) {
+            this.showToast('Please enter some text to analyze', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/analyze-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+
+            const result = await response.json();
+            
+            if (result.success) {
+                this.fillFormFromExtractedData(result.extracted_data);
+                this.showToast('Information extracted successfully!', 'success');
+                this.toggleSmartFill(); // Hide the smart fill area
+            } else {
+                this.showToast('Could not extract information from text', 'error');
+            }
+        } catch (error) {
+            console.error('Error extracting text:', error);
+            this.showToast('Failed to analyze text', 'error');
+        }
+    }
+
+    fillFormFromExtractedData(data) {
+        if (data.item_name) {
+            document.getElementById('itemName').value = data.item_name;
+        }
+        if (data.brand) {
+            const currentName = document.getElementById('itemName').value;
+            if (!currentName.toLowerCase().includes(data.brand.toLowerCase())) {
+                document.getElementById('itemName').value = `${data.brand} ${currentName}`.trim();
+            }
+        }
+        if (data.upload_time !== undefined) {
+            document.getElementById('days').value = data.upload_time;
+        }
+        if (data.views !== undefined) {
+            document.getElementById('views').value = data.views;
+        }
+        
+        // Auto-fill some reasonable defaults based on extracted data
+        if (data.upload_time === 0) {
+            document.getElementById('interested').value = data.views > 5 ? Math.floor(data.views * 0.2) : 0;
+        }
+        
+        this.triggerHaptic();
     }
 
     async handleSubmit(e) {
@@ -66,9 +286,11 @@ class VintedProApp {
             const result = await response.json();
             
             if (result.success) {
-                this.currentAnalysis = result;
+                this.currentAnalysis = { result, originalData: data };
+                this.addToRecentItems(data);
                 this.displayResults(result, data);
                 this.generateProTips(result, data);
+                this.triggerHaptic();
             } else {
                 throw new Error(result.error || 'Analysis failed');
             }
@@ -99,10 +321,33 @@ class VintedProApp {
         if (loading) {
             this.btnText.style.display = 'none';
             this.btnSpinner.style.display = 'inline-block';
+            this.updateLoadingStatus();
         } else {
             this.btnText.style.display = 'inline-block';
             this.btnSpinner.style.display = 'none';
         }
+    }
+
+    updateLoadingStatus() {
+        const statusMessages = [
+            'Fetching eBay data...',
+            'Analyzing market trends...',
+            'Calculating negotiation strategy...',
+            'Generating recommendations...'
+        ];
+        
+        let currentIndex = 0;
+        const statusElement = document.getElementById('loadingStatus');
+        
+        const updateStatus = () => {
+            if (statusElement && this.loadingOverlay.style.display === 'flex') {
+                statusElement.textContent = statusMessages[currentIndex];
+                currentIndex = (currentIndex + 1) % statusMessages.length;
+                setTimeout(updateStatus, 1500);
+            }
+        };
+        
+        updateStatus();
     }
 
     displayResults(result, originalData) {
@@ -279,7 +524,10 @@ class VintedProApp {
         try {
             await navigator.clipboard.writeText(messageText);
             
-            // Success feedback
+            // Success feedback with haptic
+            this.triggerHaptic();
+            this.showToast('Message copied to clipboard!', 'success');
+            
             const originalText = copyBtn.textContent;
             copyBtn.textContent = '✅ Copied!';
             copyBtn.classList.add('copied');
@@ -309,8 +557,10 @@ class VintedProApp {
         try {
             document.execCommand('copy');
             button.textContent = '✅ Copied!';
+            this.showToast('Message copied!', 'success');
         } catch (err) {
             button.textContent = '❌ Copy failed';
+            this.showToast('Copy failed', 'error');
         }
         
         document.body.removeChild(textArea);
@@ -338,31 +588,45 @@ class VintedProApp {
             editableMessage.style.display = 'none';
             editBtn.textContent = '✏️ Edit';
         }
+        
+        this.triggerHaptic();
+    }
+
+    retryAnalysis() {
+        if (this.currentAnalysis) {
+            // Modify the current data slightly for retry
+            const data = { ...this.currentAnalysis.originalData };
+            
+            // Create a new FormData and populate the form
+            document.getElementById('itemName').value = data.item_name;
+            document.getElementById('price').value = data.price;
+            document.getElementById('days').value = data.days;
+            document.getElementById('interested').value = data.interested;
+            if (data.views) document.getElementById('views').value = data.views;
+            
+            // Scroll to form
+            this.form.scrollIntoView({ behavior: 'smooth' });
+            this.triggerHaptic();
+        }
     }
 
     showResults() {
         this.resultsSection.style.display = 'block';
         this.resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         
-        // Animate cards
+        // Animate cards with stagger effect
         const cards = this.resultsSection.querySelectorAll('.result-card');
         cards.forEach((card, index) => {
             setTimeout(() => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                card.style.display = 'block';
-                
-                setTimeout(() => {
-                    card.style.transition = 'all 0.5s ease-out';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, 50);
-            }, index * 100);
+                card.classList.add('visible');
+            }, index * 150);
         });
     }
 
     hideResults() {
         this.resultsSection.style.display = 'none';
+        const cards = this.resultsSection.querySelectorAll('.result-card');
+        cards.forEach(card => card.classList.remove('visible'));
     }
 
     showError(message) {
@@ -379,6 +643,121 @@ class VintedProApp {
 
     hideError() {
         this.errorMessage.style.display = 'none';
+    }
+
+    showToast(message, type = 'success') {
+        const toast = document.getElementById('successToast');
+        const messageElement = toast.querySelector('.toast-message');
+        const iconElement = toast.querySelector('.toast-icon');
+        
+        messageElement.textContent = message;
+        
+        if (type === 'error') {
+            iconElement.textContent = '❌';
+            toast.style.background = 'var(--error-color)';
+        } else {
+            iconElement.textContent = '✅';
+            toast.style.background = 'var(--success-color)';
+        }
+        
+        toast.style.display = 'flex';
+        
+        setTimeout(() => {
+            toast.style.display = 'none';
+        }, 3000);
+    }
+
+    // Recent Items Management
+    loadRecentItems() {
+        try {
+            const saved = localStorage.getItem('vintedRecentItems');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    saveRecentItems() {
+        try {
+            localStorage.setItem('vintedRecentItems', JSON.stringify(this.recentItems));
+        } catch (e) {
+            // Ignore if localStorage not available
+        }
+    }
+
+    addToRecentItems(data) {
+        const item = {
+            item_name: data.item_name,
+            price: data.price,
+            days: data.days,
+            interested: data.interested,
+            views: data.views,
+            timestamp: Date.now()
+        };
+        
+        // Remove duplicates
+        this.recentItems = this.recentItems.filter(i => i.item_name !== data.item_name);
+        
+        // Add to beginning
+        this.recentItems.unshift(item);
+        
+        // Keep only last 5 items
+        this.recentItems = this.recentItems.slice(0, 5);
+        
+        this.saveRecentItems();
+        this.displayRecentItems();
+    }
+
+    displayRecentItems() {
+        const container = document.getElementById('recentItemsList');
+        const recentSection = document.getElementById('recentItems');
+        
+        if (this.recentItems.length === 0) {
+            recentSection.style.display = 'none';
+            return;
+        }
+        
+        recentSection.style.display = 'block';
+        
+        container.innerHTML = this.recentItems.map((item, index) => `
+            <div class="recent-item" data-index="${index}">
+                ${item.item_name.substring(0, 30)}${item.item_name.length > 30 ? '...' : ''}
+                <button class="delete-btn" data-index="${index}">×</button>
+            </div>
+        `).join('');
+        
+        // Add event listeners
+        container.querySelectorAll('.recent-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    e.stopPropagation();
+                    this.deleteRecentItem(parseInt(e.target.dataset.index));
+                } else {
+                    this.loadRecentItem(parseInt(item.dataset.index));
+                }
+            });
+        });
+    }
+
+    loadRecentItem(index) {
+        const item = this.recentItems[index];
+        if (!item) return;
+        
+        document.getElementById('itemName').value = item.item_name;
+        document.getElementById('price').value = item.price;
+        document.getElementById('days').value = item.days;
+        document.getElementById('interested').value = item.interested;
+        if (item.views) document.getElementById('views').value = item.views;
+        
+        this.triggerHaptic();
+        this.form.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    deleteRecentItem(index) {
+        this.recentItems.splice(index, 1);
+        this.saveRecentItems();
+        this.displayRecentItems();
+        this.triggerHaptic();
     }
 
     // Form data persistence
@@ -414,6 +793,28 @@ class VintedProApp {
         } catch (e) {
             // Ignore if data is corrupted
         }
+    }
+
+    // Haptic Feedback
+    setupHapticFeedback() {
+        // Add haptic feedback to buttons
+        const buttons = document.querySelectorAll('button, .recent-item, .suggestion-item');
+        buttons.forEach(button => {
+            button.addEventListener('click', () => this.triggerHaptic());
+        });
+    }
+
+    triggerHaptic() {
+        // Trigger device haptic feedback if available
+        if (navigator.vibrate) {
+            navigator.vibrate(50); // 50ms vibration
+        }
+        
+        // Visual feedback for non-haptic devices
+        document.body.classList.add('haptic-feedback');
+        setTimeout(() => {
+            document.body.classList.remove('haptic-feedback');
+        }, 100);
     }
 
     showInstallPrompt() {

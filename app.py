@@ -10,6 +10,9 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import math
+import base64
+from PIL import Image
+import io
 
 app = Flask(__name__)
 CORS(app)
@@ -50,7 +53,8 @@ class AdvancedVintedAnalyzer:
             # Budget brands
             "champion": {"base": 40, "depreciation": 0.25, "demand": "low"},
             "fila": {"base": 45, "depreciation": 0.25, "demand": "low"},
-            "carhartt": {"base": 55, "depreciation": 0.20, "demand": "medium"}
+            "carhartt": {"base": 55, "depreciation": 0.20, "demand": "medium"},
+            "river island": {"base": 35, "depreciation": 0.25, "demand": "medium"}
         }
         
         self.item_categories = {
@@ -69,6 +73,7 @@ class AdvancedVintedAnalyzer:
             
             # Basics - depreciate quickly
             "jeans": {"base": 35, "seasonality": 0.0, "durability": "high"},
+            "trousers": {"base": 30, "seasonality": 0.0, "durability": "high"},
             "t-shirt": {"base": 20, "seasonality": 0.0, "durability": "low"},
             "shirt": {"base": 25, "seasonality": 0.0, "durability": "medium"},
             "dress": {"base": 45, "seasonality": 0.2, "durability": "medium"},
@@ -77,6 +82,130 @@ class AdvancedVintedAnalyzer:
             "bag": {"base": 40, "seasonality": 0.1, "durability": "high"},
             "watch": {"base": 70, "seasonality": 0.0, "durability": "high"}
         }
+
+        # Common brands for autocomplete
+        self.common_brands = [
+            "Nike", "Adidas", "Puma", "New Balance", "Converse", "Vans", 
+            "River Island", "Zara", "H&M", "ASOS", "Topman", "Next",
+            "Ralph Lauren", "Tommy Hilfiger", "Calvin Klein", "Lacoste",
+            "North Face", "Patagonia", "Supreme", "Champion", "Carhartt",
+            "Gucci", "Prada", "Balenciaga", "Louis Vuitton", "Versace"
+        ]
+
+    def get_brand_suggestions(self, query: str) -> List[str]:
+        """Get brand suggestions for autocomplete"""
+        if not query or len(query) < 2:
+            return []
+        
+        query_lower = query.lower()
+        suggestions = []
+        
+        for brand in self.common_brands:
+            if query_lower in brand.lower():
+                suggestions.append(brand)
+        
+        return suggestions[:5]  # Limit to 5 suggestions
+
+    def parse_time_string(self, time_str: str) -> int:
+        """Parse time strings like '27 min ago', '2 hours ago', '3 days ago'"""
+        time_str = time_str.lower().strip()
+        
+        # Handle different formats
+        if 'min' in time_str:
+            return 0  # Less than a day
+        elif 'hour' in time_str:
+            return 0  # Less than a day
+        elif 'day' in time_str:
+            # Extract number of days
+            numbers = re.findall(r'\d+', time_str)
+            if numbers:
+                return int(numbers[0])
+        elif 'week' in time_str:
+            numbers = re.findall(r'\d+', time_str)
+            if numbers:
+                return int(numbers[0]) * 7
+        elif 'month' in time_str:
+            numbers = re.findall(r'\d+', time_str)
+            if numbers:
+                return int(numbers[0]) * 30
+        
+        return 0
+
+    def analyze_screenshot_text(self, text_content: str) -> Dict:
+        """Analyze text extracted from screenshot"""
+        lines = text_content.split('\n')
+        extracted_data = {}
+        
+        # Look for brand names
+        for line in lines:
+            line_lower = line.lower().strip()
+            for brand in self.common_brands:
+                if brand.lower() in line_lower:
+                    extracted_data['brand'] = brand
+                    break
+        
+        # Look for size information
+        size_patterns = [
+            r'size\s+([A-Z0-9]+)',
+            r'([A-Z]\d+)',
+            r'(\d+[A-Z])',
+            r'(XS|S|M|L|XL|XXL)',
+            r'(UK\s*\d+)',
+            r'(EU\s*\d+)',
+            r'(US\s*\d+)'
+        ]
+        
+        for line in lines:
+            for pattern in size_patterns:
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    extracted_data['size'] = match.group(1)
+                    break
+        
+        # Look for condition
+        condition_keywords = {
+            'new without tags': 'New without tags',
+            'new with tags': 'New with tags', 
+            'new': 'New',
+            'excellent': 'Excellent',
+            'very good': 'Very good',
+            'good': 'Good',
+            'satisfactory': 'Satisfactory'
+        }
+        
+        text_lower = text_content.lower()
+        for keyword, condition in condition_keywords.items():
+            if keyword in text_lower:
+                extracted_data['condition'] = condition
+                break
+        
+        # Look for views
+        view_match = re.search(r'views?\s+(\d+)', text_content, re.IGNORECASE)
+        if view_match:
+            extracted_data['views'] = int(view_match.group(1))
+        
+        # Look for time information
+        time_patterns = [
+            r'(\d+)\s*min\s*ago',
+            r'(\d+)\s*hour[s]?\s*ago', 
+            r'(\d+)\s*day[s]?\s*ago',
+            r'(\d+)\s*week[s]?\s*ago',
+            r'(\d+)\s*month[s]?\s*ago'
+        ]
+        
+        for pattern in time_patterns:
+            match = re.search(pattern, text_content, re.IGNORECASE)
+            if match:
+                extracted_data['upload_time'] = self.parse_time_string(match.group(0))
+                break
+        
+        # Try to extract item name/title (usually the longest meaningful line)
+        meaningful_lines = [line.strip() for line in lines if len(line.strip()) > 10]
+        if meaningful_lines:
+            # Take the first substantial line as potential item name
+            extracted_data['item_name'] = meaningful_lines[0]
+        
+        return extracted_data
 
     def analyze_market_position(self, query: str, listed_price: float) -> Dict:
         """Advanced market analysis with multiple data points"""
@@ -532,200 +661,4 @@ class AdvancedVintedAnalyzer:
         # Select template
         method_templates = templates.get(method_name, templates["Standard Offer"])
         
-        # Use item hash for consistent template selection
-        item_hash = abs(hash(item)) % len(method_templates)
-        return method_templates[item_hash]
-
-    def _apply_psychological_pricing(self, price: float) -> float:
-        """Apply psychological pricing with improved logic"""
-        if price < 5:
-            return round(price, 2)
-        elif price < 10:
-            # Round to nearest 50p
-            return round(price * 2) / 2
-        elif price < 25:
-            # Round to nearest £1, then subtract small amount
-            rounded = round(price)
-            return rounded - 0.01 if rounded >= 10 else rounded
-        elif price < 50:
-            # Round to nearest £1, then use .99 or .95
-            rounded = round(price)
-            return rounded - 0.01
-        elif price < 100:
-            # Round to nearest £5, then subtract
-            rounded = round(price / 5) * 5
-            return rounded - 0.05
-        else:
-            # Round to nearest £10, then subtract
-            rounded = round(price / 10) * 10
-            return rounded - 0.05
-
-    def _estimate_from_keywords(self, query: str) -> float:
-        """Improved keyword-based estimation as fallback"""
-        query_lower = query.lower()
-        base_price = 0
-        
-        # Brand analysis
-        brand_data = self._analyze_brand_value(query)
-        if brand_data["brand"] != "Unknown":
-            base_price = brand_data["base_value"]
-        
-        # Category analysis
-        for category, data in self.item_categories.items():
-            if category in query_lower:
-                base_price = max(base_price, data["base"])
-                break
-        
-        # Quality indicators
-        quality_multipliers = {
-            "vintage": 1.3, "rare": 1.4, "limited": 1.3, "edition": 1.2,
-            "new": 1.2, "deadstock": 1.5, "unworn": 1.25, "mint": 1.2,
-            "excellent": 1.1, "perfect": 1.15, "authentic": 1.05
-        }
-        
-        multiplier = 1.0
-        for term, mult in quality_multipliers.items():
-            if term in query_lower:
-                multiplier *= mult
-        
-        # Condition detractors
-        condition_detractors = {
-            "worn": 0.8, "used": 0.85, "damaged": 0.6, "stained": 0.7,
-            "faded": 0.75, "small": 0.9, "marks": 0.8
-        }
-        
-        for term, mult in condition_detractors.items():
-            if term in query_lower:
-                multiplier *= mult
-        
-        if base_price == 0:
-            # Fallback based on query complexity
-            base_price = 25 + len(query.split()) * 3
-        
-        final_price = base_price * multiplier
-        return max(10, min(300, final_price))  # Reasonable bounds
-
-# Initialize analyzer
-analyzer = AdvancedVintedAnalyzer()
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/analyze', methods=['POST'])
-def analyze():
-    try:
-        data = request.json
-        
-        # Validate input
-        required_fields = ['item_name', 'price', 'days', 'interested']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({"error": f"Missing field: {field}"}), 400
-        
-        # Validate data types and ranges
-        try:
-            data['price'] = float(data['price'])
-            data['days'] = int(data['days'])
-            data['interested'] = int(data['interested'])
-            
-            if data['price'] <= 0:
-                return jsonify({"error": "Price must be greater than 0"}), 400
-            if data['days'] < 0:
-                return jsonify({"error": "Days cannot be negative"}), 400
-            if data['interested'] < 0:
-                return jsonify({"error": "Interested count cannot be negative"}), 400
-                
-        except (ValueError, TypeError):
-            return jsonify({"error": "Invalid data types"}), 400
-        
-        # Optional views field
-        if 'views' in data:
-            try:
-                data['views'] = int(data['views'])
-                if data['views'] < 0:
-                    data['views'] = 0
-            except (ValueError, TypeError):
-                data['views'] = 0
-        else:
-            data['views'] = 0
-        
-        # Generate strategy using improved analyzer
-        strategy = analyzer.generate_advanced_strategy(data)
-        
-        # Format response
-        response = {
-            "success": True,
-            "market_price": strategy["market_analysis"]["sold_median"],
-            "strategy": {
-                "method": strategy["method"],
-                "offer_price": strategy["offer_price"],
-                "confidence": strategy["confidence"],
-                "discount_percent": strategy["discount_percent"],
-                "message": strategy["message"]
-            },
-            "analysis": {
-                "market_position": strategy["market_analysis"]["market_position"],
-                "seller_motivation": strategy["seller_motivation"]["seller_type"],
-                "negotiation_strength": strategy["reasoning"]["negotiation_strength"],
-                "brand_info": strategy["market_analysis"].get("brand_analysis", {})
-            },
-            "insights": {
-                "market_comparison": _format_market_comparison(data["price"], strategy["market_analysis"]),
-                "seller_insights": _format_seller_insights(strategy["seller_motivation"]),
-                "strategy_rationale": strategy["reasoning"]["strategy_rationale"]
-            }
-        }
-        
-        return jsonify(response)
-        
-    except Exception as e:
-        logging.error(f"Analysis error: {e}")
-        return jsonify({"error": "Analysis failed. Please try again."}), 500
-
-def _format_market_comparison(listing_price, market_analysis):
-    """Format market comparison for frontend"""
-    if market_analysis["sold_median"] > 0:
-        ratio = listing_price / market_analysis["sold_median"]
-        if ratio <= 0.8:
-            return f"This item is priced {((1-ratio)*100):.0f}% below typical sold prices - great deal!"
-        elif ratio <= 1.1:
-            return "This item is priced around typical market value."
-        elif ratio <= 1.3:
-            return f"This item is priced {((ratio-1)*100):.0f}% above typical sold prices."
-        else:
-            return f"This item is priced {((ratio-1)*100):.0f}% above market - significant negotiation room!"
-    else:
-        return "Limited market data available for comparison."
-
-def _format_seller_insights(seller_motivation):
-    """Format seller insights for frontend"""
-    urgency = seller_motivation["urgency_score"]
-    seller_type = seller_motivation["seller_type"]
-    
-    insights = []
-    
-    if urgency > 0.7:
-        insights.append("Seller appears motivated to sell quickly")
-    elif urgency < 0.3:
-        insights.append("Seller doesn't seem rushed to sell")
-    
-    type_descriptions = {
-        "motivated_seller": "Seller likely wants to clear this item",
-        "testing_market": "Seller is testing what price they can get",
-        "firm_on_price": "Seller seems firm on their pricing",
-        "typical_seller": "Standard selling situation"
-    }
-    
-    insights.append(type_descriptions.get(seller_type, "Standard situation"))
-    
-    return ". ".join(insights) + "."
-
-@app.route('/health')
-def health_check():
-    """Health check endpoint for deployment platforms"""
-    return jsonify({"status": "healthy", "analyzer": "ready"})
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+        # Use item hash for consistent
