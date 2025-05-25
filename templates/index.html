@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#007AFF">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Vinted Pro">
+    
+    <title>Vinted Deal Finder Pro</title>
+    
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>🎯 Vinted Deal Finder Pro</h1>
+            <p>Advanced negotiation strategies & market analysis</p>
+        </header>
+
+        <!-- Main Form -->
+        <main class="main-content">
+            <form id="analyzeForm" class="input-form">
+                <div class="form-group">
+                    <label for="itemName">Item Name</label>
+                    <input type="text" id="itemName" name="itemName" 
+                           placeholder="e.g., Nike Air Force 1 size 9" required>
+                    <small>Be specific - include brand, model, size, condition</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="price">Vinted Price (£)</label>
+                    <input type="number" id="price" name="price" step="0.01" min="1" 
+                           placeholder="25.00" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="days">Days Listed</label>
+                        <input type="number" id="days" name="days" min="0" placeholder="5" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="interested">Interested People</label>
+                        <input type="number" id="interested" name="interested" min="0" placeholder="2" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="views">Views (optional)</label>
+                    <input type="number" id="views" name="views" min="0" 
+                           placeholder="Leave blank if unknown">
+                    <small>Helps improve accuracy if you know this</small>
+                </div>
+
+                <button type="submit" class="analyze-btn" id="analyzeBtn">
+                    <span class="btn-text">🔍 Analyze Deal</span>
+                    <span class="btn-spinner" style="display: none;">⏳ Analyzing...</span>
+                </button>
+            </form>
+
+            <!-- Results Section -->
+            <div id="results" class="results-section" style="display: none;">
+                <!-- Market Analysis Card -->
+                <div class="result-card market-card">
+                    <h2>📊 Market Analysis</h2>
+                    <div class="market-info">
+                        <div class="price-comparison">
+                            <div class="price-item">
+                                <span class="label">Market Price:</span>
+                                <span class="value" id="marketPrice">£-</span>
+                            </div>
+                            <div class="price-item">
+                                <span class="label">Your Savings:</span>
+                                <span class="value savings" id="savings">-</span>
+                            </div>
+                        </div>
+                        <div class="market-insight">
+                            <p id="marketComparison" class="insight-text"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Strategy Card -->
+                <div class="result-card strategy-card">
+                    <h2>🎯 Recommended Strategy</h2>
+                    <div class="strategy-header">
+                        <div class="strategy-method">
+                            <span id="strategyIcon" class="strategy-emoji">💬</span>
+                            <span id="strategyMethod" class="method-name">Standard Offer</span>
+                        </div>
+                        <div class="confidence-badge">
+                            <span id="confidence" class="confidence-stars">★★★☆☆</span>
+                        </div>
+                    </div>
+                    
+                    <div class="offer-details">
+                        <div class="offer-price">
+                            <strong>Suggested Offer: £<span id="offerPrice">-</span></strong>
+                            <span class="discount">(<span id="discountPercent">-</span>% off)</span>
+                        </div>
+                        <div class="negotiation-strength">
+                            <span class="label">Negotiation Strength:</span>
+                            <span id="negotiationStrength" class="strength-value">-</span>%
+                        </div>
+                    </div>
+
+                    <div class="strategy-rationale">
+                        <p id="strategyRationale" class="rationale-text"></p>
+                    </div>
+                </div>
+
+                <!-- Seller Insights Card -->
+                <div class="result-card insights-card">
+                    <h2>👤 Seller Insights</h2>
+                    <div class="insights-content">
+                        <p id="sellerInsights" class="insight-text"></p>
+                        <div class="seller-type">
+                            <span class="label">Seller Type:</span>
+                            <span id="sellerType" class="type-badge">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Brand Analysis (if available) -->
+                <div id="brandAnalysis" class="result-card brand-card" style="display: none;">
+                    <h2>🏷️ Brand Analysis</h2>
+                    <div class="brand-info">
+                        <div class="brand-details">
+                            <span class="brand-name" id="brandName">-</span>
+                            <span class="brand-tier" id="brandTier">-</span>
+                        </div>
+                        <div class="brand-value">
+                            <span class="label">Typical Value:</span>
+                            <span id="brandValue">£-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Message Template Card -->
+                <div class="result-card message-card">
+                    <h2>📱 Message Template</h2>
+                    <div class="message-container">
+                        <div class="message-preview">
+                            <p id="messageTemplate" class="message-text">-</p>
+                        </div>
+                        <div class="message-actions">
+                            <button id="copyBtn" class="copy-btn">📋 Copy Message</button>
+                            <button id="editBtn" class="edit-btn">✏️ Edit</button>
+                        </div>
+                        <textarea id="editableMessage" class="editable-message" style="display: none;"></textarea>
+                    </div>
+                </div>
+
+                <!-- Pro Tips -->
+                <div class="result-card tips-card">
+                    <h2>💡 Pro Tips</h2>
+                    <div id="proTips" class="tips-content">
+                        <!-- Tips will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="error-message" style="display: none;">
+                <p>❌ Something went wrong. Please check your input and try again.</p>
+            </div>
+
+            <!-- Loading overlay -->
+            <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+                <div class="loading-content">
+                    <div class="loading-spinner"></div>
+                    <p>Analyzing market data...</p>
+                    <small>This may take a few seconds</small>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>🎯 Advanced algorithms • 📊 Real market data • 💰 Maximize savings</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
