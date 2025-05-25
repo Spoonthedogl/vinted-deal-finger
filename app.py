@@ -10,9 +10,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import math
-import base64
-from PIL import Image
-import io
+import hashlib
 
 app = Flask(__name__)
 CORS(app)
@@ -406,6 +404,57 @@ class AdvancedVintedAnalyzer:
         
         return max(0.05, min(0.6, adjusted_potential))  # Cap between 5% and 60%
 
+    def _estimate_from_keywords(self, query: str) -> float:
+        """Estimate price from keywords when no market data available"""
+        query_lower = query.lower()
+        
+        # Check for brand
+        brand_value = 30  # default
+        for brand, data in self.brands_data.items():
+            if brand in query_lower:
+                brand_value = data["base"]
+                break
+        
+        # Check for item category
+        category_value = 40  # default
+        for category, data in self.item_categories.items():
+            if category in query_lower:
+                category_value = data["base"]
+                break
+        
+        # Take the higher of brand or category value
+        estimated_price = max(brand_value, category_value)
+        
+        # Adjust for condition keywords
+        if any(word in query_lower for word in ['new', 'unused', 'tags']):
+            estimated_price *= 1.3
+        elif any(word in query_lower for word in ['excellent', 'mint']):
+            estimated_price *= 1.1
+        elif any(word in query_lower for word in ['poor', 'damaged', 'worn']):
+            estimated_price *= 0.7
+        
+        return estimated_price
+
+    def _apply_psychological_pricing(self, price: float) -> float:
+        """Apply psychological pricing principles"""
+        # Round to psychological price points
+        if price >= 100:
+            # Round to nearest £5 for high prices
+            return round(price / 5) * 5
+        elif price >= 50:
+            # Round to nearest £1 for medium prices  
+            return round(price)
+        elif price >= 20:
+            # Use .99 or .49 endings for lower prices
+            rounded = round(price)
+            if rounded - price > 0.5:
+                return rounded - 0.01  # e.g., 24.99
+            else:
+                return rounded - 0.51  # e.g., 24.49
+        else:
+            # Round to nearest 50p for very low prices
+            return round(price * 2) / 2
+
     def generate_advanced_strategy(self, data: Dict) -> Dict:
         """Generate strategy using advanced logic"""
         
@@ -661,4 +710,94 @@ class AdvancedVintedAnalyzer:
         # Select template
         method_templates = templates.get(method_name, templates["Standard Offer"])
         
-        # Use item hash for consistent
+        # Use item hash for consistent template selection
+        item_hash = int(hashlib.md5(item.encode()).hexdigest(), 16)
+        template_index = item_hash % len(method_templates)
+        
+        return method_templates[template_index]
+
+
+# Initialize analyzer
+analyzer = AdvancedVintedAnalyzer()
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['item_name', 'price', 'days', 'interested']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'success': False, 'error': f'Missing field: {field}'}), 400
+        
+        # Generate analysis
+        result = analyzer.generate_advanced_strategy(data)
+        
+        # Calculate market price and additional insights
+        market_analysis = analyzer.analyze_market_position(data["item_name"], data["price"])
+        
+        response = {
+            'success': True,
+            'strategy': {
+                'method': result['method'],
+                'offer_price': result['offer_price'],
+                'confidence': result['confidence'],
+                'discount_percent': result['discount_percent'],
+                'message': result['message']
+            },
+            'analysis': {
+                'market_position': result['reasoning']['market_position'],
+                'negotiation_strength': result['reasoning']['negotiation_strength'],
+                'seller_motivation': result['seller_motivation']['seller_type'],
+                'strategy_rationale': result['reasoning']['strategy_rationale'],
+                'brand_info': result['market_analysis']['brand_analysis']
+            },
+            'market_price': market_analysis.get('sold_median', data['price'] * 0.8),
+            'insights': {
+                'market_comparison': f"This item is {result['reasoning']['market_position'].replace('_', ' ')} compared to similar listings.",
+                'seller_insights': f"Seller appears to be a {result['seller_motivation']['seller_type'].replace('_', ' ')} based on listing behavior.",
+            }
+        }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logging.error(f"Analysis error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/brands')
+def get_brand_suggestions():
+    query = request.args.get('q', '')
+    suggestions = analyzer.get_brand_suggestions(query)
+    return jsonify(suggestions)
+
+@app.route('/api/analyze-text', methods=['POST'])
+def analyze_text():
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        
+        if not text:
+            return jsonify({'success': False, 'error': 'No text provided'})
+        
+        extracted_data = analyzer.analyze_screenshot_text(text)
+        
+        return jsonify({
+            'success': True,
+            'extracted_data': extracted_data
+        })
+        
+    except Exception as e:
+        logging.error(f"Text analysis error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
