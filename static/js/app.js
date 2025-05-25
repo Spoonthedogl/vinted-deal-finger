@@ -882,3 +882,241 @@ window.addEventListener('offline', () => {
     
     setTimeout(() => statusBanner.remove(), 5000);
 });
+
+// Add this enhanced market scan functionality to your app.js
+
+async performMarketScan() {
+    const itemName = document.getElementById('itemName').value.trim();
+    
+    if (!itemName || itemName.length < 3) {
+        this.showToast('Enter an item name first (at least 3 characters)', 'error');
+        return;
+    }
+    
+    // Show loading state
+    const scanBtn = document.getElementById('marketScanBtn');
+    const originalText = scanBtn.textContent;
+    scanBtn.textContent = '🔄 Scanning...';
+    scanBtn.disabled = true;
+    
+    try {
+        // Get real-time market trends
+        const response = await fetch(`/api/market-trends/${encodeURIComponent(itemName)}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            this.displayMarketScanResults(data.trends, itemName);
+        } else {
+            this.showToast('Market scan failed - try again', 'error');
+        }
+    } catch (error) {
+        console.error('Market scan error:', error);
+        this.showToast('Market scan failed - check your connection', 'error');
+    } finally {
+        // Reset button
+        scanBtn.textContent = originalText;
+        scanBtn.disabled = false;
+    }
+}
+
+displayMarketScanResults(trends, itemName) {
+    // Create or update market scan results panel
+    let scanResults = document.getElementById('marketScanResults');
+    
+    if (!scanResults) {
+        scanResults = document.createElement('div');
+        scanResults.id = 'marketScanResults';
+        scanResults.className = 'market-scan-results';
+        
+        // Insert after quick tools
+        const quickTools = document.querySelector('.quick-tools');
+        quickTools.parentNode.insertBefore(scanResults, quickTools.nextSibling);
+    }
+    
+    // Calculate market insights
+    const priceDirection = trends.price_trend === 'rising' ? '📈 Rising' : 
+                          trends.price_trend === 'declining' ? '📉 Declining' : '📊 Stable';
+    
+    const demandLevel = trends.demand_surge ? '🔥 High Demand' : 
+                       trends.hype_score > 0.6 ? '📊 Moderate Demand' : '💤 Low Demand';
+    
+    const seasonalImpact = trends.seasonal_factor > 1.1 ? '❄️ Peak Season (+25%)' :
+                          trends.seasonal_factor < 0.9 ? '🌞 Off Season (-20%)' : '📅 Normal Season';
+    
+    const marketAdvice = this.generateMarketAdvice(trends);
+    
+    scanResults.innerHTML = `
+        <div class="scan-results-header">
+            <h3>🔍 Market Scan Results for "${itemName}"</h3>
+            <button class="close-scan-btn" onclick="this.parentElement.parentElement.style.display='none'">×</button>
+        </div>
+        
+        <div class="scan-metrics">
+            <div class="scan-metric">
+                <span class="scan-label">Price Trend (30 days)</span>
+                <span class="scan-value trend-${trends.price_trend}">${priceDirection}</span>
+            </div>
+            <div class="scan-metric">
+                <span class="scan-label">Market Demand</span>
+                <span class="scan-value">${demandLevel}</span>
+            </div>
+            <div class="scan-metric">
+                <span class="scan-label">Seasonal Impact</span>
+                <span class="scan-value">${seasonalImpact}</span>
+            </div>
+            <div class="scan-metric">
+                <span class="scan-label">Estimated Market Price</span>
+                <span class="scan-value market-price">£${trends.estimated_market_price?.toFixed(2) || 'N/A'}</span>
+            </div>
+        </div>
+        
+        <div class="market-advice">
+            <h4>💡 Market Intelligence</h4>
+            <ul class="advice-list">
+                ${marketAdvice.map(advice => `<li>${advice}</li>`).join('')}
+            </ul>
+        </div>
+        
+        <div class="scan-actions">
+            <button class="auto-fill-btn" onclick="vintedApp.autoFillFromScan(${trends.estimated_market_price || 50})">
+                📝 Auto-fill Price
+            </button>
+            <button class="watch-market-btn" onclick="vintedApp.watchMarket('${itemName}')">
+                👀 Watch This Market
+            </button>
+        </div>
+    `;
+    
+    scanResults.style.display = 'block';
+    
+    // Smooth scroll to results
+    scanResults.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
+    // Show success message
+    this.showToast(`✅ Market scan complete for ${itemName}`, 'success');
+    
+    // Auto-update price indicator if price field is filled
+    const priceInput = document.getElementById('price');
+    if (priceInput.value && trends.estimated_market_price) {
+        this.updatePriceIndicatorFromScan(parseFloat(priceInput.value), trends.estimated_market_price);
+    }
+}
+
+generateMarketAdvice(trends) {
+    const advice = [];
+    
+    // Price trend advice
+    if (trends.price_trend === 'declining') {
+        advice.push('🎯 <strong>Buyer\'s market</strong> - Prices are falling, you have negotiation power');
+        advice.push('⏰ Good time to make offers below asking price');
+    } else if (trends.price_trend === 'rising') {
+        advice.push('🚀 <strong>Seller\'s market</strong> - Prices are rising, act quickly');
+        advice.push('💨 Consider offering closer to asking price to secure the item');
+    } else {
+        advice.push('⚖️ <strong>Stable market</strong> - Standard negotiation tactics apply');
+    }
+    
+    // Demand advice
+    if (trends.demand_surge) {
+        advice.push('🔥 <strong>High demand detected</strong> - Multiple buyers likely interested');
+        advice.push('⚡ Make competitive offers quickly to avoid losing out');
+    } else if (trends.hype_score < 0.3) {
+        advice.push('😴 <strong>Low demand</strong> - Sellers may be more flexible');
+        advice.push('🎯 Good opportunity for lower offers');
+    }
+    
+    // Seasonal advice
+    if (trends.seasonal_factor > 1.1) {
+        advice.push('❄️ <strong>Peak season pricing</strong> - Expect 15-25% premium');
+        advice.push('📅 Consider waiting for off-season if not urgent');
+    } else if (trends.seasonal_factor < 0.9) {
+        advice.push('🌞 <strong>Off-season advantage</strong> - Prices typically 10-20% lower');
+        advice.push('💰 Great time to buy, sellers want to clear inventory');
+    }
+    
+    // Data quality advice
+    if (trends.data_sources && trends.data_sources >= 2) {
+        advice.push('📊 <strong>High confidence</strong> - Analysis based on multiple data sources');
+    } else {
+        advice.push('⚠️ <strong>Limited data</strong> - Use these insights as rough guidance');
+    }
+    
+    return advice;
+}
+
+autoFillFromScan(estimatedPrice) {
+    const priceInput = document.getElementById('price');
+    
+    if (!priceInput.value) {
+        // If no price set, use estimated market price
+        priceInput.value = estimatedPrice.toFixed(2);
+        this.showToast('💡 Price auto-filled from market data', 'success');
+    } else {
+        // If price already set, show comparison
+        const currentPrice = parseFloat(priceInput.value);
+        const difference = ((currentPrice - estimatedPrice) / estimatedPrice * 100).toFixed(1);
+        
+        if (difference > 10) {
+            this.showToast(`⚠️ Your price is ${difference}% above market average`, 'warning');
+        } else if (difference < -10) {
+            this.showToast(`💰 Your price is ${Math.abs(difference)}% below market average`, 'success');
+        } else {
+            this.showToast(`✅ Your price is close to market average`, 'success');
+        }
+    }
+    
+    // Trigger price indicator update
+    priceInput.dispatchEvent(new Event('input'));
+    this.triggerHaptic();
+}
+
+watchMarket(itemName) {
+    // Add to watched items (stored in localStorage)
+    let watchedItems = JSON.parse(localStorage.getItem('watchedMarkets') || '[]');
+    
+    if (!watchedItems.includes(itemName)) {
+        watchedItems.push(itemName);
+        localStorage.setItem('watchedMarkets', JSON.stringify(watchedItems));
+        
+        this.showToast(`👀 Now watching market for "${itemName}"`, 'success');
+        
+        // Set up periodic checking (every 30 minutes)
+        this.scheduleMarketCheck(itemName);
+    } else {
+        this.showToast(`Already watching "${itemName}"`, 'info');
+    }
+    
+    this.triggerHaptic();
+}
+
+scheduleMarketCheck(itemName) {
+    // This would normally set up background checking
+    // For demo purposes, just show what would happen
+    setTimeout(() => {
+        this.showToast(`📊 Market update: Checking ${itemName} trends...`, 'info');
+    }, 5000);
+}
+
+updatePriceIndicatorFromScan(userPrice, marketPrice) {
+    const indicator = document.getElementById('priceIndicator');
+    if (!indicator) return;
+    
+    const difference = ((userPrice - marketPrice) / marketPrice * 100);
+    
+    if (difference > 20) {
+        indicator.textContent = `📈 ${difference.toFixed(0)}% above market average`;
+        indicator.className = 'price-status overpriced';
+    } else if (difference > 10) {
+        indicator.textContent = `📊 ${difference.toFixed(0)}% above market average`;
+        indicator.className = 'price-status market-price';
+    } else if (difference < -20) {
+        indicator.textContent = `💰 ${Math.abs(difference).toFixed(0)}% below market average - Great deal!`;
+        indicator.className = 'price-status good-deal';
+    } else if (difference < -10) {
+        indicator.textContent = `💰 ${Math.abs(difference).toFixed(0)}% below market average`;
+        indicator.className = 'price-status good-deal';
+    } else {
+        indicator.textContent = `✅ Close to market average`;
+        indicator.className = 'price-status market-price';
+    }
+}
