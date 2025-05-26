@@ -16,6 +16,47 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/style.css">
+    
+    <style>
+        /* Additional CSS fixes that need to be added */
+        .status-banner {
+            position: fixed;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 0.75rem 1.5rem;
+            border-radius: 1.5rem;
+            color: white;
+            font-weight: 600;
+            z-index: 1500;
+            animation: slideDown 0.3s ease-out;
+        }
+        
+        .status-banner.online {
+            background: var(--secondary);
+        }
+        
+        .status-banner.offline {
+            background: var(--danger);
+        }
+        
+        .copy-btn.copied {
+            background: var(--secondary) !important;
+            transform: scale(0.95);
+        }
+        
+        .probability-value.high {
+            color: var(--secondary);
+        }
+        
+        .probability-value.medium {
+            color: var(--accent);
+        }
+        
+        .probability-value.low {
+            color: var(--danger);
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -355,5 +396,49 @@
     </div>
 
     <script src="/static/js/app.js"></script>
+    
+    <!-- Additional JavaScript fixes -->
+    <script>
+        // Global functions for onclick handlers
+        window.closeMarketScan = function() {
+            const scanResults = document.getElementById('marketScanResults');
+            if (scanResults) {
+                scanResults.style.display = 'none';
+            }
+        };
+        
+        // Ensure vintedApp is globally accessible
+        window.addEventListener('load', function() {
+            // Check if all required elements exist
+            const requiredElements = [
+                'analyzeForm', 'results', 'errorMessage', 'loadingOverlay',
+                'analyzeBtn', 'copyBtn', 'editBtn', 'retryBtn', 'darkModeToggle',
+                'smartFillBtn', 'extractBtn', 'marketScanBtn'
+            ];
+            
+            const missingElements = requiredElements.filter(id => !document.getElementById(id));
+            
+            if (missingElements.length > 0) {
+                console.warn('Missing elements (app will still work):', missingElements);
+            } else {
+                console.log('All required elements found - app ready');
+            }
+        });
+        
+        // Fallback error handling
+        window.addEventListener('error', function(e) {
+            console.error('Global error:', e.error);
+            
+            // Show user-friendly error message
+            const errorDiv = document.getElementById('errorMessage');
+            if (errorDiv) {
+                errorDiv.style.display = 'block';
+                const errorText = errorDiv.querySelector('p');
+                if (errorText) {
+                    errorText.textContent = '❌ Something went wrong. Please refresh the page and try again.';
+                }
+            }
+        });
+    </script>
 </body>
 </html>

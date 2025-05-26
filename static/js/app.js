@@ -27,6 +27,18 @@ class VintedProApp {
         document.getElementById('smartFillBtn').addEventListener('click', () => this.toggleSmartFill());
         document.getElementById('extractBtn').addEventListener('click', () => this.extractFromText());
         
+        // Market scan functionality
+        document.getElementById('marketScanBtn').addEventListener('click', () => this.performMarketScan());
+        
+        // Regenerate button
+        const regenerateBtn = document.getElementById('regenerateBtn');
+        if (regenerateBtn) {
+            regenerateBtn.addEventListener('click', () => this.regenerateMessage());
+        }
+        
+        // Learning outcome buttons
+        this.setupLearningButtons();
+        
         // Quick selectors
         this.setupQuickSelectors();
         
@@ -56,6 +68,294 @@ class VintedProApp {
         
         // Setup haptic feedback
         this.setupHapticFeedback();
+        
+        // Price input change handler
+        const priceInput = document.getElementById('price');
+        if (priceInput) {
+            priceInput.addEventListener('input', () => this.updatePriceIndicator());
+        }
+    }
+
+    setupLearningButtons() {
+        document.querySelectorAll('.outcome-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const outcome = e.target.dataset.outcome;
+                this.reportOutcome(outcome);
+            });
+        });
+    }
+
+    async reportOutcome(outcome) {
+        if (!this.currentAnalysis) {
+            this.showToast('No analysis to report on', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/learn', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_name: this.currentAnalysis.originalData.item_name,
+                    original_price: this.currentAnalysis.originalData.price,
+                    offered_price: this.currentAnalysis.result.strategy.offer_price,
+                    strategy_used: this.currentAnalysis.result.strategy.method,
+                    outcome: outcome
+                })
+            });
+
+            if (response.ok) {
+                this.showToast(`✅ Feedback recorded: ${outcome}`, 'success');
+            } else {
+                this.showToast('Failed to record feedback', 'error');
+            }
+        } catch (error) {
+            console.error('Learning error:', error);
+            this.showToast('Failed to record feedback', 'error');
+        }
+    }
+
+    async performMarketScan() {
+        const itemName = document.getElementById('itemName').value.trim();
+        
+        if (!itemName || itemName.length < 3) {
+            this.showToast('Enter an item name first (at least 3 characters)', 'error');
+            return;
+        }
+        
+        // Show loading state
+        const scanBtn = document.getElementById('marketScanBtn');
+        const originalText = scanBtn.textContent;
+        scanBtn.textContent = '🔄 Scanning...';
+        scanBtn.disabled = true;
+        
+        try {
+            // Get real-time market trends
+            const response = await fetch(`/api/market-trends/${encodeURIComponent(itemName)}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                this.displayMarketScanResults(data.trends, itemName);
+            } else {
+                this.showToast('Market scan failed - try again', 'error');
+            }
+        } catch (error) {
+            console.error('Market scan error:', error);
+            this.showToast('Market scan failed - check your connection', 'error');
+        } finally {
+            // Reset button
+            scanBtn.textContent = originalText;
+            scanBtn.disabled = false;
+        }
+    }
+
+    displayMarketScanResults(trends, itemName) {
+        // Create or update market scan results panel
+        let scanResults = document.getElementById('marketScanResults');
+        
+        if (!scanResults) {
+            scanResults = document.createElement('div');
+            scanResults.id = 'marketScanResults';
+            scanResults.className = 'market-scan-results';
+            
+            // Insert after quick tools
+            const quickTools = document.querySelector('.quick-tools');
+            quickTools.parentNode.insertBefore(scanResults, quickTools.nextSibling);
+        }
+        
+        // Calculate market insights
+        const priceDirection = trends.price_trend === 'rising' ? '📈 Rising' : 
+                              trends.price_trend === 'declining' ? '📉 Declining' : '📊 Stable';
+        
+        const demandLevel = trends.demand_surge ? '🔥 High Demand' : 
+                           trends.hype_score > 0.6 ? '📊 Moderate Demand' : '💤 Low Demand';
+        
+        const seasonalImpact = trends.seasonal_factor > 1.1 ? '❄️ Peak Season (+25%)' :
+                              trends.seasonal_factor < 0.9 ? '🌞 Off Season (-20%)' : '📅 Normal Season';
+        
+        const marketAdvice = this.generateMarketAdvice(trends);
+        
+        scanResults.innerHTML = `
+            <div class="scan-results-header">
+                <h3>🔍 Market Scan Results for "${itemName}"</h3>
+                <button class="close-scan-btn" onclick="this.parentElement.parentElement.style.display='none'">×</button>
+            </div>
+            
+            <div class="scan-metrics">
+                <div class="scan-metric">
+                    <span class="scan-label">Price Trend (30 days)</span>
+                    <span class="scan-value trend-${trends.price_trend}">${priceDirection}</span>
+                </div>
+                <div class="scan-metric">
+                    <span class="scan-label">Market Demand</span>
+                    <span class="scan-value">${demandLevel}</span>
+                </div>
+                <div class="scan-metric">
+                    <span class="scan-label">Seasonal Impact</span>
+                    <span class="scan-value">${seasonalImpact}</span>
+                </div>
+                <div class="scan-metric">
+                    <span class="scan-label">Estimated Market Price</span>
+                    <span class="scan-value market-price">£${trends.estimated_market_price?.toFixed(2) || 'N/A'}</span>
+                </div>
+            </div>
+            
+            <div class="market-advice">
+                <h4>💡 Market Intelligence</h4>
+                <ul class="advice-list">
+                    ${marketAdvice.map(advice => `<li>${advice}</li>`).join('')}
+                </ul>
+            </div>
+            
+            <div class="scan-actions">
+                <button class="auto-fill-btn" onclick="vintedApp.autoFillFromScan(${trends.estimated_market_price || 50})">
+                    📝 Auto-fill Price
+                </button>
+                <button class="watch-market-btn" onclick="vintedApp.watchMarket('${itemName}')">
+                    👀 Watch This Market
+                </button>
+            </div>
+        `;
+        
+        scanResults.style.display = 'block';
+        
+        // Smooth scroll to results
+        scanResults.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+        // Show success message
+        this.showToast(`✅ Market scan complete for ${itemName}`, 'success');
+        
+        // Auto-update price indicator if price field is filled
+        const priceInput = document.getElementById('price');
+        if (priceInput.value && trends.estimated_market_price) {
+            this.updatePriceIndicatorFromScan(parseFloat(priceInput.value), trends.estimated_market_price);
+        }
+    }
+
+    generateMarketAdvice(trends) {
+        const advice = [];
+        
+        // Price trend advice
+        if (trends.price_trend === 'declining') {
+            advice.push('🎯 <strong>Buyer\'s market</strong> - Prices are falling, you have negotiation power');
+            advice.push('⏰ Good time to make offers below asking price');
+        } else if (trends.price_trend === 'rising') {
+            advice.push('🚀 <strong>Seller\'s market</strong> - Prices are rising, act quickly');
+            advice.push('💨 Consider offering closer to asking price to secure the item');
+        } else {
+            advice.push('⚖️ <strong>Stable market</strong> - Standard negotiation tactics apply');
+        }
+        
+        // Demand advice
+        if (trends.demand_surge) {
+            advice.push('🔥 <strong>High demand detected</strong> - Multiple buyers likely interested');
+            advice.push('⚡ Make competitive offers quickly to avoid losing out');
+        } else if (trends.hype_score < 0.3) {
+            advice.push('😴 <strong>Low demand</strong> - Sellers may be more flexible');
+            advice.push('🎯 Good opportunity for lower offers');
+        }
+        
+        return advice;
+    }
+
+    autoFillFromScan(estimatedPrice) {
+        const priceInput = document.getElementById('price');
+        
+        if (!priceInput.value) {
+            // If no price set, use estimated market price
+            priceInput.value = estimatedPrice.toFixed(2);
+            this.showToast('💡 Price auto-filled from market data', 'success');
+        } else {
+            // If price already set, show comparison
+            const currentPrice = parseFloat(priceInput.value);
+            const difference = ((currentPrice - estimatedPrice) / estimatedPrice * 100).toFixed(1);
+            
+            if (difference > 10) {
+                this.showToast(`⚠️ Your price is ${difference}% above market average`, 'warning');
+            } else if (difference < -10) {
+                this.showToast(`💰 Your price is ${Math.abs(difference)}% below market average`, 'success');
+            } else {
+                this.showToast(`✅ Your price is close to market average`, 'success');
+            }
+        }
+        
+        // Trigger price indicator update
+        this.updatePriceIndicator();
+        this.triggerHaptic();
+    }
+
+    watchMarket(itemName) {
+        // Add to watched items (stored in localStorage)
+        let watchedItems = JSON.parse(localStorage.getItem('watchedMarkets') || '[]');
+        
+        if (!watchedItems.includes(itemName)) {
+            watchedItems.push(itemName);
+            localStorage.setItem('watchedMarkets', JSON.stringify(watchedItems));
+            
+            this.showToast(`👀 Now watching market for "${itemName}"`, 'success');
+        } else {
+            this.showToast(`Already watching "${itemName}"`, 'info');
+        }
+        
+        this.triggerHaptic();
+    }
+
+    updatePriceIndicator() {
+        const priceInput = document.getElementById('price');
+        const itemNameInput = document.getElementById('itemName');
+        const indicator = document.getElementById('priceIndicator');
+        
+        if (!indicator || !priceInput.value || !itemNameInput.value) {
+            if (indicator) indicator.textContent = '';
+            return;
+        }
+        
+        const price = parseFloat(priceInput.value);
+        // Simple price indication logic
+        if (price > 100) {
+            indicator.textContent = '💰 High-value item - research thoroughly';
+            indicator.className = 'price-status market-price';
+        } else if (price < 10) {
+            indicator.textContent = '💡 Budget item - quick negotiations work';
+            indicator.className = 'price-status good-deal';
+        } else {
+            indicator.textContent = '📊 Standard price range';
+            indicator.className = 'price-status market-price';
+        }
+    }
+
+    updatePriceIndicatorFromScan(userPrice, marketPrice) {
+        const indicator = document.getElementById('priceIndicator');
+        if (!indicator) return;
+        
+        const difference = ((userPrice - marketPrice) / marketPrice * 100);
+        
+        if (difference > 20) {
+            indicator.textContent = `📈 ${difference.toFixed(0)}% above market average`;
+            indicator.className = 'price-status overpriced';
+        } else if (difference > 10) {
+            indicator.textContent = `📊 ${difference.toFixed(0)}% above market average`;
+            indicator.className = 'price-status market-price';
+        } else if (difference < -20) {
+            indicator.textContent = `💰 ${Math.abs(difference).toFixed(0)}% below market average - Great deal!`;
+            indicator.className = 'price-status good-deal';
+        } else if (difference < -10) {
+            indicator.textContent = `💰 ${Math.abs(difference).toFixed(0)}% below market average`;
+            indicator.className = 'price-status good-deal';
+        } else {
+            indicator.textContent = `✅ Close to market average`;
+            indicator.className = 'price-status market-price';
+        }
+    }
+
+    async regenerateMessage() {
+        if (!this.currentAnalysis) {
+            this.showToast('No analysis to regenerate message for', 'error');
+            return;
+        }
+
+        // Re-analyze with same data to get new message
+        await this.handleSubmit(new Event('submit'));
     }
 
     setupQuickSelectors() {
@@ -173,12 +473,22 @@ class VintedProApp {
         document.documentElement.setAttribute('data-theme', newTheme);
         localStorage.setItem('theme', newTheme);
         
+        // Update button icon
+        const toggleBtn = document.getElementById('darkModeToggle');
+        toggleBtn.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+        
         this.triggerHaptic();
     }
 
     loadTheme() {
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
+        
+        // Update button icon
+        const toggleBtn = document.getElementById('darkModeToggle');
+        if (toggleBtn) {
+            toggleBtn.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+        }
     }
 
     toggleSmartFill() {
@@ -351,16 +661,21 @@ class VintedProApp {
     }
 
     displayResults(result, originalData) {
-        const { market_price, strategy, analysis, insights } = result;
+        console.log('Displaying results:', result); // Debug log
+        
+        const { strategy, analysis, insights, enhanced_features } = result;
         
         // Market analysis
-        this.updateMarketAnalysis(market_price, strategy, originalData, insights);
+        this.updateMarketAnalysis(result.market_price, strategy, originalData, insights, enhanced_features);
         
         // Strategy details
         this.updateStrategy(strategy, analysis);
         
         // Seller insights
-        this.updateSellerInsights(analysis, insights);
+        this.updateSellerInsights(analysis, insights, enhanced_features);
+        
+        // Timing analysis
+        this.updateTimingAnalysis(enhanced_features?.timing_analysis);
         
         // Brand analysis (if available)
         this.updateBrandAnalysis(analysis.brand_info);
@@ -372,21 +687,56 @@ class VintedProApp {
         this.showResults();
     }
 
-    updateMarketAnalysis(marketPrice, strategy, originalData, insights) {
-        document.getElementById('marketPrice').textContent = marketPrice.toFixed(2);
+    updateMarketAnalysis(marketPrice, strategy, originalData, insights, enhancedFeatures) {
+        // Update market price
+        const marketPriceElement = document.getElementById('marketPrice');
+        if (marketPriceElement) {
+            marketPriceElement.textContent = marketPrice.toFixed(2);
+        }
         
+        // Update savings
         const savings = originalData.price - strategy.offer_price;
         const savingsElement = document.getElementById('savings');
         
-        if (savings > 0) {
-            savingsElement.textContent = `£${savings.toFixed(2)} (${strategy.discount_percent}%)`;
-            savingsElement.className = 'value savings positive';
-        } else {
-            savingsElement.textContent = 'Item is well-priced';
-            savingsElement.className = 'value savings neutral';
+        if (savingsElement) {
+            if (savings > 0) {
+                savingsElement.textContent = `£${savings.toFixed(2)} (${strategy.discount_percent}%)`;
+                savingsElement.className = 'value savings positive';
+            } else {
+                savingsElement.textContent = 'Item is well-priced';
+                savingsElement.className = 'value savings neutral';
+            }
         }
         
-        document.getElementById('marketComparison').textContent = insights.market_comparison;
+        // Update market trends if available
+        if (enhancedFeatures?.market_trends) {
+            const trends = enhancedFeatures.market_trends;
+            
+            const marketTrendElement = document.getElementById('marketTrend');
+            if (marketTrendElement) {
+                const trendIcon = trends.price_trend === 'rising' ? '📈' : 
+                                trends.price_trend === 'declining' ? '📉' : '📊';
+                marketTrendElement.textContent = `${trendIcon} ${trends.price_trend}`;
+                marketTrendElement.className = `metric-value trend-${trends.price_trend}`;
+            }
+            
+            const seasonalElement = document.getElementById('seasonalFactor');
+            if (seasonalElement) {
+                seasonalElement.textContent = `${trends.seasonal_factor.toFixed(1)}x`;
+            }
+        }
+        
+        // Update market comparison
+        const comparisonElement = document.getElementById('marketComparison');
+        if (comparisonElement && insights?.market_comparison) {
+            comparisonElement.textContent = insights.market_comparison;
+        }
+        
+        // Update trend insights
+        const trendInsightsElement = document.getElementById('trendInsights');
+        if (trendInsightsElement && insights?.trend_insights) {
+            trendInsightsElement.textContent = insights.trend_insights;
+        }
     }
 
     updateStrategy(strategy, analysis) {
@@ -396,34 +746,134 @@ class VintedProApp {
             'Direct Message': '📝',
             'Confident Offer': '🎯',
             'Patient Approach': '🕐',
-            'Watch and Wait': '👀'
+            'Watch and Wait': '👀',
+            'Enhanced Standard Offer': '🤖',
+            'Trend-Based Direct Message': '📊',
+            'Market Reality Check': '🔍',
+            'Urgent Offer': '🚀',
+            'End-of-Month Push': '📅'
         };
         
-        document.getElementById('strategyIcon').textContent = methodIcons[strategy.method] || '💬';
-        document.getElementById('strategyMethod').textContent = strategy.method;
-        document.getElementById('offerPrice').textContent = strategy.offer_price.toFixed(2);
-        document.getElementById('discountPercent').textContent = strategy.discount_percent;
+        // Update strategy icon and method
+        const iconElement = document.getElementById('strategyIcon');
+        const methodElement = document.getElementById('strategyMethod');
         
-        // Confidence stars
-        const confidence = Math.max(1, Math.min(5, strategy.confidence));
-        const stars = '★'.repeat(confidence) + '☆'.repeat(5 - confidence);
-        document.getElementById('confidence').textContent = stars;
+        if (iconElement) {
+            iconElement.textContent = methodIcons[strategy.method] || '💬';
+        }
+        if (methodElement) {
+            methodElement.textContent = strategy.method;
+        }
         
-        // Negotiation strength
+        // Update offer price
+        const offerPriceElement = document.getElementById('offerPrice');
+        if (offerPriceElement) {
+            offerPriceElement.textContent = strategy.offer_price.toFixed(2);
+        }
+        
+        // Update discount percentage
+        const discountElement = document.getElementById('discountPercent');
+        if (discountElement) {
+            discountElement.textContent = strategy.discount_percent;
+        }
+        
+        // Update confidence stars
+        const confidenceElement = document.getElementById('confidence');
+        if (confidenceElement) {
+            const confidence = Math.max(1, Math.min(5, strategy.confidence));
+            const stars = '★'.repeat(confidence) + '☆'.repeat(5 - confidence);
+            confidenceElement.textContent = stars;
+        }
+        
+        // Update confidence percentage
+        const confidencePercentageElement = document.getElementById('confidencePercentage');
+        if (confidencePercentageElement) {
+            confidencePercentageElement.textContent = `${strategy.confidence * 20}%`;
+        }
+        
+        // Update negotiation strength
         const strengthElement = document.getElementById('negotiationStrength');
-        strengthElement.textContent = analysis.negotiation_strength;
-        strengthElement.className = this.getStrengthClass(analysis.negotiation_strength);
+        if (strengthElement && analysis.negotiation_strength) {
+            strengthElement.textContent = analysis.negotiation_strength;
+            strengthElement.className = this.getStrengthClass(analysis.negotiation_strength);
+        }
         
-        // Strategy rationale
-        document.getElementById('strategyRationale').textContent = analysis.strategy_rationale;
+        // Update success probability
+        const successElement = document.getElementById('successProbability');
+        if (successElement) {
+            const probability = Math.round((strategy.confidence / 5) * 100);
+            successElement.textContent = probability;
+            successElement.className = this.getProbabilityClass(probability);
+        }
+        
+        // Update strategy rationale
+        const rationaleElement = document.getElementById('strategyRationale');
+        if (rationaleElement && analysis.strategy_rationale) {
+            rationaleElement.textContent = analysis.strategy_rationale;
+        }
     }
 
-    updateSellerInsights(analysis, insights) {
-        document.getElementById('sellerInsights').textContent = insights.seller_insights;
+    updateSellerInsights(analysis, insights, enhancedFeatures) {
+        // Update seller insights text
+        const sellerInsightsElement = document.getElementById('sellerInsights');
+        if (sellerInsightsElement && insights?.seller_insights) {
+            sellerInsightsElement.textContent = insights.seller_insights;
+        }
         
+        // Update seller type
         const sellerTypeElement = document.getElementById('sellerType');
-        sellerTypeElement.textContent = this.formatSellerType(analysis.seller_motivation);
-        sellerTypeElement.className = `type-badge ${analysis.seller_motivation.replace('_', '-')}`;
+        if (sellerTypeElement && analysis.seller_motivation) {
+            sellerTypeElement.textContent = this.formatSellerType(analysis.seller_motivation);
+            sellerTypeElement.className = `type-badge ${analysis.seller_motivation.replace('_', '-')}`;
+        }
+        
+        // Update seller profile if available
+        if (enhancedFeatures?.seller_profile) {
+            const profile = enhancedFeatures.seller_profile;
+            
+            const responsePatternElement = document.getElementById('responsePattern');
+            if (responsePatternElement) {
+                responsePatternElement.textContent = `${profile.avg_response_time}h avg`;
+            }
+            
+            const flexibilityElement = document.getElementById('flexibilityScore');
+            if (flexibilityElement) {
+                flexibilityElement.textContent = Math.round(profile.negotiation_flexibility * 100);
+            }
+        }
+    }
+
+    updateTimingAnalysis(timingAnalysis) {
+        if (!timingAnalysis) return;
+        
+        // Update timing score
+        const timingScoreElement = document.getElementById('timingScoreValue');
+        if (timingScoreElement) {
+            const score = Math.round(timingAnalysis.timing_score * 10);
+            timingScoreElement.textContent = `${score}/10`;
+        }
+        
+        // Update timing recommendation
+        const timingRecommendationElement = document.getElementById('timingRecommendation');
+        if (timingRecommendationElement) {
+            let recommendation = '';
+            if (timingAnalysis.timing_score > 0.8) {
+                recommendation = '🟢 Excellent time to contact - high response probability';
+            } else if (timingAnalysis.timing_score > 0.6) {
+                recommendation = '🟡 Good time to contact - moderate response expected';
+            } else if (timingAnalysis.recommended_wait_hours > 0) {
+                recommendation = `🔴 Wait ${timingAnalysis.recommended_wait_hours} hours for better timing`;
+            } else {
+                recommendation = '🟡 Timing is okay but could be better';
+            }
+            timingRecommendationElement.textContent = recommendation;
+        }
+        
+        // Update follow-up schedule
+        const followUpElement = document.getElementById('followUpSchedule');
+        if (followUpElement && timingAnalysis.follow_up_schedule) {
+            followUpElement.textContent = `Day ${timingAnalysis.follow_up_schedule.join(', ')}`;
+        }
     }
 
     updateBrandAnalysis(brandInfo) {
@@ -431,9 +881,31 @@ class VintedProApp {
         
         if (brandInfo && brandInfo.brand !== 'Unknown') {
             brandCard.style.display = 'block';
-            document.getElementById('brandName').textContent = brandInfo.brand;
-            document.getElementById('brandTier').textContent = this.formatBrandTier(brandInfo.demand_level);
-            document.getElementById('brandValue').textContent = `£${brandInfo.base_value}`;
+            
+            const brandNameElement = document.getElementById('brandName');
+            if (brandNameElement) {
+                brandNameElement.textContent = brandInfo.brand;
+            }
+            
+            const brandTierElement = document.getElementById('brandTier');
+            if (brandTierElement) {
+                brandTierElement.textContent = this.formatBrandTier(brandInfo.demand_level);
+            }
+            
+            const brandValueElement = document.getElementById('brandValue');
+            if (brandValueElement) {
+                brandValueElement.textContent = `£${brandInfo.base_value}`;
+            }
+            
+            const depreciationElement = document.getElementById('depreciationRate');
+            if (depreciationElement) {
+                depreciationElement.textContent = `${(brandInfo.depreciation_rate * 100).toFixed(0)}%/year`;
+            }
+            
+            const demandElement = document.getElementById('marketDemand');
+            if (demandElement) {
+                demandElement.textContent = brandInfo.demand_level;
+            }
         } else {
             brandCard.style.display = 'none';
         }
@@ -443,12 +915,50 @@ class VintedProApp {
         const templateElement = document.getElementById('messageTemplate');
         const editableElement = document.getElementById('editableMessage');
         
-        templateElement.textContent = message;
-        editableElement.value = message;
+        if (templateElement) {
+            templateElement.textContent = message;
+        }
+        if (editableElement) {
+            editableElement.value = message;
+        }
+        
+        // Update message analysis
+        const toneElement = document.getElementById('messageTone');
+        const effectivenessElement = document.getElementById('messageEffectiveness');
+        
+        if (toneElement) {
+            toneElement.textContent = this.analyzeTone(message);
+        }
+        if (effectivenessElement) {
+            effectivenessElement.textContent = this.analyzeEffectiveness(message);
+        }
+    }
+
+    analyzeTone(message) {
+        if (message.includes('would you accept') || message.includes('would you consider')) {
+            return 'Polite';
+        } else if (message.includes('immediately') || message.includes('right now')) {
+            return 'Urgent';
+        } else if (message.includes('research') || message.includes('market')) {
+            return 'Informed';
+        }
+        return 'Professional';
+    }
+
+    analyzeEffectiveness(message) {
+        let score = 0;
+        if (message.length > 50) score += 1;
+        if (message.includes('£')) score += 1;
+        if (message.includes('would') || message.includes('could')) score += 1;
+        if (message.includes('quickly') || message.includes('today')) score += 1;
+        
+        return score >= 3 ? 'High' : score >= 2 ? 'Medium' : 'Low';
     }
 
     generateProTips(result, originalData) {
         const tipsContainer = document.getElementById('proTips');
+        if (!tipsContainer) return;
+        
         const tips = [];
         
         // Market-based tips
@@ -491,6 +1001,12 @@ class VintedProApp {
         if (strength >= 70) return 'strength-value high';
         if (strength >= 40) return 'strength-value medium';
         return 'strength-value low';
+    }
+
+    getProbabilityClass(probability) {
+        if (probability >= 70) return 'probability-value high';
+        if (probability >= 40) return 'probability-value medium';
+        return 'probability-value low';
     }
 
     formatSellerType(sellerType) {
@@ -654,10 +1170,16 @@ class VintedProApp {
         
         if (type === 'error') {
             iconElement.textContent = '❌';
-            toast.style.background = 'var(--error-color)';
+            toast.style.background = '#ef4444';
+        } else if (type === 'warning') {
+            iconElement.textContent = '⚠️';
+            toast.style.background = '#f59e0b';
+        } else if (type === 'info') {
+            iconElement.textContent = 'ℹ️';
+            toast.style.background = '#6366f1';
         } else {
             iconElement.textContent = '✅';
-            toast.style.background = 'var(--success-color)';
+            toast.style.background = '#10b981';
         }
         
         toast.style.display = 'flex';
@@ -859,9 +1381,12 @@ class VintedProApp {
     }
 }
 
+// Create global instance
+let vintedApp;
+
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    new VintedProApp();
+    vintedApp = new VintedProApp();
 });
 
 // Handle online/offline status
@@ -882,241 +1407,3 @@ window.addEventListener('offline', () => {
     
     setTimeout(() => statusBanner.remove(), 5000);
 });
-
-// Add this enhanced market scan functionality to your app.js
-
-async performMarketScan() {
-    const itemName = document.getElementById('itemName').value.trim();
-    
-    if (!itemName || itemName.length < 3) {
-        this.showToast('Enter an item name first (at least 3 characters)', 'error');
-        return;
-    }
-    
-    // Show loading state
-    const scanBtn = document.getElementById('marketScanBtn');
-    const originalText = scanBtn.textContent;
-    scanBtn.textContent = '🔄 Scanning...';
-    scanBtn.disabled = true;
-    
-    try {
-        // Get real-time market trends
-        const response = await fetch(`/api/market-trends/${encodeURIComponent(itemName)}`);
-        const data = await response.json();
-        
-        if (data.success) {
-            this.displayMarketScanResults(data.trends, itemName);
-        } else {
-            this.showToast('Market scan failed - try again', 'error');
-        }
-    } catch (error) {
-        console.error('Market scan error:', error);
-        this.showToast('Market scan failed - check your connection', 'error');
-    } finally {
-        // Reset button
-        scanBtn.textContent = originalText;
-        scanBtn.disabled = false;
-    }
-}
-
-displayMarketScanResults(trends, itemName) {
-    // Create or update market scan results panel
-    let scanResults = document.getElementById('marketScanResults');
-    
-    if (!scanResults) {
-        scanResults = document.createElement('div');
-        scanResults.id = 'marketScanResults';
-        scanResults.className = 'market-scan-results';
-        
-        // Insert after quick tools
-        const quickTools = document.querySelector('.quick-tools');
-        quickTools.parentNode.insertBefore(scanResults, quickTools.nextSibling);
-    }
-    
-    // Calculate market insights
-    const priceDirection = trends.price_trend === 'rising' ? '📈 Rising' : 
-                          trends.price_trend === 'declining' ? '📉 Declining' : '📊 Stable';
-    
-    const demandLevel = trends.demand_surge ? '🔥 High Demand' : 
-                       trends.hype_score > 0.6 ? '📊 Moderate Demand' : '💤 Low Demand';
-    
-    const seasonalImpact = trends.seasonal_factor > 1.1 ? '❄️ Peak Season (+25%)' :
-                          trends.seasonal_factor < 0.9 ? '🌞 Off Season (-20%)' : '📅 Normal Season';
-    
-    const marketAdvice = this.generateMarketAdvice(trends);
-    
-    scanResults.innerHTML = `
-        <div class="scan-results-header">
-            <h3>🔍 Market Scan Results for "${itemName}"</h3>
-            <button class="close-scan-btn" onclick="this.parentElement.parentElement.style.display='none'">×</button>
-        </div>
-        
-        <div class="scan-metrics">
-            <div class="scan-metric">
-                <span class="scan-label">Price Trend (30 days)</span>
-                <span class="scan-value trend-${trends.price_trend}">${priceDirection}</span>
-            </div>
-            <div class="scan-metric">
-                <span class="scan-label">Market Demand</span>
-                <span class="scan-value">${demandLevel}</span>
-            </div>
-            <div class="scan-metric">
-                <span class="scan-label">Seasonal Impact</span>
-                <span class="scan-value">${seasonalImpact}</span>
-            </div>
-            <div class="scan-metric">
-                <span class="scan-label">Estimated Market Price</span>
-                <span class="scan-value market-price">£${trends.estimated_market_price?.toFixed(2) || 'N/A'}</span>
-            </div>
-        </div>
-        
-        <div class="market-advice">
-            <h4>💡 Market Intelligence</h4>
-            <ul class="advice-list">
-                ${marketAdvice.map(advice => `<li>${advice}</li>`).join('')}
-            </ul>
-        </div>
-        
-        <div class="scan-actions">
-            <button class="auto-fill-btn" onclick="vintedApp.autoFillFromScan(${trends.estimated_market_price || 50})">
-                📝 Auto-fill Price
-            </button>
-            <button class="watch-market-btn" onclick="vintedApp.watchMarket('${itemName}')">
-                👀 Watch This Market
-            </button>
-        </div>
-    `;
-    
-    scanResults.style.display = 'block';
-    
-    // Smooth scroll to results
-    scanResults.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    
-    // Show success message
-    this.showToast(`✅ Market scan complete for ${itemName}`, 'success');
-    
-    // Auto-update price indicator if price field is filled
-    const priceInput = document.getElementById('price');
-    if (priceInput.value && trends.estimated_market_price) {
-        this.updatePriceIndicatorFromScan(parseFloat(priceInput.value), trends.estimated_market_price);
-    }
-}
-
-generateMarketAdvice(trends) {
-    const advice = [];
-    
-    // Price trend advice
-    if (trends.price_trend === 'declining') {
-        advice.push('🎯 <strong>Buyer\'s market</strong> - Prices are falling, you have negotiation power');
-        advice.push('⏰ Good time to make offers below asking price');
-    } else if (trends.price_trend === 'rising') {
-        advice.push('🚀 <strong>Seller\'s market</strong> - Prices are rising, act quickly');
-        advice.push('💨 Consider offering closer to asking price to secure the item');
-    } else {
-        advice.push('⚖️ <strong>Stable market</strong> - Standard negotiation tactics apply');
-    }
-    
-    // Demand advice
-    if (trends.demand_surge) {
-        advice.push('🔥 <strong>High demand detected</strong> - Multiple buyers likely interested');
-        advice.push('⚡ Make competitive offers quickly to avoid losing out');
-    } else if (trends.hype_score < 0.3) {
-        advice.push('😴 <strong>Low demand</strong> - Sellers may be more flexible');
-        advice.push('🎯 Good opportunity for lower offers');
-    }
-    
-    // Seasonal advice
-    if (trends.seasonal_factor > 1.1) {
-        advice.push('❄️ <strong>Peak season pricing</strong> - Expect 15-25% premium');
-        advice.push('📅 Consider waiting for off-season if not urgent');
-    } else if (trends.seasonal_factor < 0.9) {
-        advice.push('🌞 <strong>Off-season advantage</strong> - Prices typically 10-20% lower');
-        advice.push('💰 Great time to buy, sellers want to clear inventory');
-    }
-    
-    // Data quality advice
-    if (trends.data_sources && trends.data_sources >= 2) {
-        advice.push('📊 <strong>High confidence</strong> - Analysis based on multiple data sources');
-    } else {
-        advice.push('⚠️ <strong>Limited data</strong> - Use these insights as rough guidance');
-    }
-    
-    return advice;
-}
-
-autoFillFromScan(estimatedPrice) {
-    const priceInput = document.getElementById('price');
-    
-    if (!priceInput.value) {
-        // If no price set, use estimated market price
-        priceInput.value = estimatedPrice.toFixed(2);
-        this.showToast('💡 Price auto-filled from market data', 'success');
-    } else {
-        // If price already set, show comparison
-        const currentPrice = parseFloat(priceInput.value);
-        const difference = ((currentPrice - estimatedPrice) / estimatedPrice * 100).toFixed(1);
-        
-        if (difference > 10) {
-            this.showToast(`⚠️ Your price is ${difference}% above market average`, 'warning');
-        } else if (difference < -10) {
-            this.showToast(`💰 Your price is ${Math.abs(difference)}% below market average`, 'success');
-        } else {
-            this.showToast(`✅ Your price is close to market average`, 'success');
-        }
-    }
-    
-    // Trigger price indicator update
-    priceInput.dispatchEvent(new Event('input'));
-    this.triggerHaptic();
-}
-
-watchMarket(itemName) {
-    // Add to watched items (stored in localStorage)
-    let watchedItems = JSON.parse(localStorage.getItem('watchedMarkets') || '[]');
-    
-    if (!watchedItems.includes(itemName)) {
-        watchedItems.push(itemName);
-        localStorage.setItem('watchedMarkets', JSON.stringify(watchedItems));
-        
-        this.showToast(`👀 Now watching market for "${itemName}"`, 'success');
-        
-        // Set up periodic checking (every 30 minutes)
-        this.scheduleMarketCheck(itemName);
-    } else {
-        this.showToast(`Already watching "${itemName}"`, 'info');
-    }
-    
-    this.triggerHaptic();
-}
-
-scheduleMarketCheck(itemName) {
-    // This would normally set up background checking
-    // For demo purposes, just show what would happen
-    setTimeout(() => {
-        this.showToast(`📊 Market update: Checking ${itemName} trends...`, 'info');
-    }, 5000);
-}
-
-updatePriceIndicatorFromScan(userPrice, marketPrice) {
-    const indicator = document.getElementById('priceIndicator');
-    if (!indicator) return;
-    
-    const difference = ((userPrice - marketPrice) / marketPrice * 100);
-    
-    if (difference > 20) {
-        indicator.textContent = `📈 ${difference.toFixed(0)}% above market average`;
-        indicator.className = 'price-status overpriced';
-    } else if (difference > 10) {
-        indicator.textContent = `📊 ${difference.toFixed(0)}% above market average`;
-        indicator.className = 'price-status market-price';
-    } else if (difference < -20) {
-        indicator.textContent = `💰 ${Math.abs(difference).toFixed(0)}% below market average - Great deal!`;
-        indicator.className = 'price-status good-deal';
-    } else if (difference < -10) {
-        indicator.textContent = `💰 ${Math.abs(difference).toFixed(0)}% below market average`;
-        indicator.className = 'price-status good-deal';
-    } else {
-        indicator.textContent = `✅ Close to market average`;
-        indicator.className = 'price-status market-price';
-    }
-}
